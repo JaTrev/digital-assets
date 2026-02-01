@@ -1,5 +1,3 @@
-# --- Core Data & DB ---
-pandas==2.2.0
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.25
 
@@ -14,3 +12,8 @@ google-cloud-secret-manager==2.18.0
 # --- Research & Utilities ---
 python-dotenv==1.0.1
 ipykernel==6.29.0  # Required for VS Code Jupyter Notebooks
+
+
+pandas
+numpy
+dotenv

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digital-assets"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.12"
+# CORE: These are installed in Cloud Run
+dependencies = [
+    "pandas",
+    "numpy",
+    "psycopg2-binary==2.9.9",
+    "sqlalchemy==2.0.25",
+    "ccxt==4.2.14",
+    "python-dotenv==1.0.1",
+    "google-cloud-storage==2.14.0",
+    "google-cloud-logging==3.9.0",
+    "google-cloud-secret-manager==2.18.0",
+]
+
+# OPTIONAL: These are only for your local machine/VS Code
+[project.optional-dependencies]
+dev = [
+    "ipykernel==6.29.0",
+    "black", 
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
