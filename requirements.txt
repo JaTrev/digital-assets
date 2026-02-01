@@ -1,0 +1,16 @@
+# --- Core Data & DB ---
+pandas==2.2.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+
+# --- Exchange & API ---
+ccxt==4.2.14
+
+# --- Google Cloud (GCP) ---
+google-cloud-storage==2.14.0
+google-cloud-logging==3.9.0
+google-cloud-secret-manager==2.18.0
+
+# --- Research & Utilities ---
+python-dotenv==1.0.1
+ipykernel==6.29.0  # Required for VS Code Jupyter Notebooks
