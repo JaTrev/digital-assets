@@ -1,31 +1,33 @@
-name: Deploy to Cloud Run
+name: Daily Crypto Pipeline
 
 on:
-  push:
-    branches: [ main ]
+  schedule:
+    # 8:00 AM UTC (3:00 AM EST / 9:00 AM CET)
+    - cron: '0 8 * * *'
+  workflow_dispatch: # This adds the manual "Run workflow" button
 
 jobs:
-  deploy:
+  run-heartbeat:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          python-version: '3.12'
+          cache: 'pip'
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      # This creates/updates the "Dummy" job using your local source code
-      - name: Build and Deploy Dummy Job
+      - name: Install Dependencies
         run: |
-          gcloud run jobs deploy dummy \
-            --source . \
-            --region us-central1 \
-            --set-env-vars "SUPABASE_DB_URL=${{ secrets.SUPABASE_DB_URL }}" \
-            --command "python" \
-            --args "jobs/dummy.py" \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+          python -m pip install --upgrade pip
+          # This installs from your requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Dummy
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # Executes your heartbeat script
+          python jobs/dummy.py
