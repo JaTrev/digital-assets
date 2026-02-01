@@ -1,15 +1,9 @@
-import logging
 import pandas as pd
 from datetime import datetime, timezone
 from src.clients.db_client import SupabaseClient
+from src.utils.logger import get_production_logger
 
-# 1. Setup Production Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger("heartbeat_job")
+logger = get_production_logger("dummy importer")
 
 def main():
     logger.info("Starting dummy heartbeat job...")
