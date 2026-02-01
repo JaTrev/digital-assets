@@ -31,4 +31,4 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           # Executes your heartbeat script
-          python jobs/dummy.py
+          python -m jobs.dummy
