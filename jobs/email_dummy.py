@@ -26,29 +26,29 @@ def send_email(df, recipients):
     
     html_body = f"""
     <html>
-      <head>
-        <style>
-          body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; }}
-          .banner {{ background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 15px; margin-bottom: 20px; border-radius: 4px; }}
-          table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
-          th {{ background-color: #007bff; color: white; padding: 10px; text-align: left; }}
-          td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
-          .footer {{ margin-top: 20px; font-size: 0.8em; color: #777; border-top: 1px solid #eee; padding-top: 10px; }}
-        </style>
-      </head>
-      <body>
-        <div class="banner">
-          <strong>Project Update:</strong> This is an automated Dummy Job demonstrating our ability to fetch data from Supabase and deliver it via email.
-        </div>
+        <head>
+            <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; }}
+            .banner {{ background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 15px; margin-bottom: 20px; border-radius: 4px; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
+            th {{ background-color: #007bff; color: white; padding: 10px; text-align: left; }}
+            td {{ padding: 8px; border-bottom: 1px solid #ddd; }}
+            .footer {{ margin-top: 20px; font-size: 0.8em; color: #777; border-top: 1px solid #eee; padding-top: 10px; }}
+            </style>
+        </head>
+        <body>
+            <div class="banner">
+            <strong>Project Update:</strong> This is an automated Dummy Job demonstrating our ability to fetch data from Supabase and deliver it via email.
+            </div>
         
-        <h3>Current Database Snapshot</h3>
-        {html_table}
-        
-        <div class="footer">
-          <p>Sent via <strong>GitHub Actions</strong> Pipeline.<br>
-          Triggered by schedule: 08:00 UTC Daily.</p>
-        </div>
-      </body>
+            <h3>Current Database Snapshot</h3>
+            {html_table}
+            
+            <div class="footer">
+                <p>Sent via <strong>GitHub Actions</strong> Pipeline.<br>
+                Triggered by schedule: 08:00 UTC Daily.</p>
+            </div>
+        </body>
     </html>
     """
     msg.attach(MIMEText(html_body, 'html'))
