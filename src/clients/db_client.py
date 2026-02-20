@@ -32,7 +32,7 @@ class SupabaseClient:
             
             try:
                 with self.conn.cursor() as cursor:
-                    cursor.copy_from(buffer, table_name, sep=',', columns=list(df.columns))
+                    cursor.copy_from(buffer, table_name, sep=',', columns=list(df.columns), null='')
                 self.conn.commit()
                 logging.info(f"Successfully wrote {len(df)} rows to {table_name}")
             except Exception as e:

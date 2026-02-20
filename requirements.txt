@@ -18,3 +18,4 @@ pandas
 numpy
 dotenv
 python-dotenv
+pyarrow

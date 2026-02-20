@@ -13,8 +13,8 @@ secrets.json
 
 # --- Research & Data ---
 # Ignore local CSVs/Logs but keep the folders
-research/data/*.csv
-research/data/*.parquet
+data/*.csv
+data/*.parquet
 *.log
 .ipynb_checkpoints/
 
