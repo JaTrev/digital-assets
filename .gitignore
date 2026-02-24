@@ -12,9 +12,10 @@ secrets.json
 *.key
 
 # --- Research & Data ---
-# Ignore local CSVs/Logs but keep the folders
-data/*.csv
-data/*.parquet
+# Ignore all data files (never commit data to repo)
+data/
+*.csv
+*.parquet
 *.log
 .ipynb_checkpoints/
 
