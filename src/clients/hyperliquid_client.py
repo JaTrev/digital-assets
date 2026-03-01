@@ -265,6 +265,9 @@ class HyperliquidClient:
         
         Returns:
             DataFrame with all funding rate data
+            
+        Note:
+            - There is no 1-hour gap between announcement and payment, the rate is effective immediately at the timestamp provided.
         """
         print(f"Downloading funding rates for {symbol} from {start_date} to {end_date}")
         

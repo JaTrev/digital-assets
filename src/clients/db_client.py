@@ -141,9 +141,17 @@ class DBClient:
         Expects df with columns: 
         - instrument_id (required)
         - timestamp (required)
-        - funding_rate_relative (required)
-        - funding_rate_absolute (optional, will be NULL if missing)
-        - premium (optional, will be NULL if missing)
+        - At least ONE of: funding_rate_relative, funding_rate_absolute, or premium
+        
+        Exchange-specific patterns:
+        - Hyperliquid: funding_rate_relative + premium (both fields, hourly)
+        - dYdX: funding_rate_relative only (hourly rate)
+        - Kraken (if supported): funding_rate_relative + funding_rate_absolute
+        
+        Column mapping:
+        - funding_rate_relative: The actual funding rate charged (as %)
+        - funding_rate_absolute: Funding in absolute USD per contract (rare)
+        - premium: Premium component, mark-index spread (Hyperliquid specific)
         
         If ANY conflict occurs (duplicate timestamp), the ENTIRE insert is reverted.
         
@@ -153,16 +161,19 @@ class DBClient:
             return 0
         
         # Convert DataFrame to list of tuples with native Python types
-        records = [
-            (
+        records = []
+        for _, row in df.iterrows():
+            funding_rel = float(row['funding_rate_relative']) if 'funding_rate_relative' in df.columns and pd.notna(row.get('funding_rate_relative')) else None
+            funding_abs = float(row['funding_rate_absolute']) if 'funding_rate_absolute' in df.columns and pd.notna(row.get('funding_rate_absolute')) else None
+            premium = float(row['premium']) if 'premium' in df.columns and pd.notna(row.get('premium')) else None
+            
+            records.append((
                 int(row['instrument_id']),
                 row['timestamp'],
-                float(row['funding_rate_relative']),
-                float(row['funding_rate_absolute']) if 'funding_rate_absolute' in row and row['funding_rate_absolute'] is not None else None,
-                float(row['premium']) if 'premium' in row and row['premium'] is not None else None
-            )
-            for _, row in df.iterrows()
-        ]
+                funding_rel,
+                funding_abs,
+                premium
+            ))
         
         try:
             with self.conn.cursor() as cur:
