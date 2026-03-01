@@ -14,6 +14,39 @@ class DBClient:
     """
     Database client for Google Cloud SQL PostgreSQL.
     """
+    def __init__(self):
+        """Initialize with no connection (lazy initialization)"""
+        self.conn = None
+        self.cursor = None
+    
+    def __enter__(self):
+        """Enter context manager - establish database connection"""
+        self.conn = psycopg2.connect(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT")),
+            database=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD")
+        )
+        self.conn.autocommit = False
+        self.cursor = self.conn.cursor()
+        logger.info("Connected to database")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager - commit/rollback and close connection"""
+        if self.cursor:
+            self.cursor.close()
+        if self.conn:
+            if exc_type is None:
+                self.conn.commit()
+                logger.info("Transaction committed")
+            else:
+                self.conn.rollback()
+                logger.warning(f"Transaction rolled back due to: {exc_val}")
+            self.conn.close()
+            logger.info("Database connection closed")
+        return False
     
     def __init__(self):
         self.conn = psycopg2.connect(
@@ -100,6 +133,59 @@ class DBClient:
             self.conn.rollback()
             logger.error(f"Insert failed: {e}")
             raise
+    
+    def insert_funding_data(self, df: pd.DataFrame) -> int:
+        """
+        Bulk insert funding rate data for perpetual futures.
+        
+        Expects df with columns: 
+        - instrument_id (required)
+        - timestamp (required)
+        - funding_rate_relative (required)
+        - funding_rate_absolute (optional, will be NULL if missing)
+        - premium (optional, will be NULL if missing)
+        
+        If ANY conflict occurs (duplicate timestamp), the ENTIRE insert is reverted.
+        
+        Returns: number of rows inserted (0 if conflict)
+        """
+        if df.empty:
+            return 0
+        
+        # Convert DataFrame to list of tuples with native Python types
+        records = [
+            (
+                int(row['instrument_id']),
+                row['timestamp'],
+                float(row['funding_rate_relative']),
+                float(row['funding_rate_absolute']) if 'funding_rate_absolute' in row and row['funding_rate_absolute'] is not None else None,
+                float(row['premium']) if 'premium' in row and row['premium'] is not None else None
+            )
+            for _, row in df.iterrows()
+        ]
+        
+        try:
+            with self.conn.cursor() as cur:
+                execute_values(
+                    cur,
+                    """INSERT INTO funding_history 
+                    (instrument_id, timestamp, funding_rate_relative, funding_rate_absolute, premium)
+                    VALUES %s""",
+                    records,
+                    page_size=1000
+                )
+                self.conn.commit()
+                logger.info(f"Inserted {len(records)} funding rate rows")
+                return len(records)
+                
+        except psycopg2.IntegrityError as e:
+            self.conn.rollback()
+            logger.warning(f"Funding rate conflict detected, rolled back entire insert: {e}")
+            return 0
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Funding rate insert failed: {e}")
+            raise
         
     def get_instruments_by_exchange(self, exchange: str) -> Dict[str, int]:
         """
@@ -120,6 +206,50 @@ class DBClient:
                 return {ticker: inst_id for ticker, inst_id in results}
         except Exception as e:
             logger.error(f"Failed to fetch instruments for {exchange}: {e}")
+            return {}
+    
+    def get_perpetuals(self, exchange: str) -> pd.DataFrame:
+        """
+        Get all active perpetual futures for a given exchange.
+        
+        Args:
+            exchange: Exchange name (e.g., 'hyperliquid', 'kraken')
+        
+        Returns:
+            DataFrame with columns: id, ticker, base_asset, quote_asset, 
+            settle_asset, margin_mode, kind
+        """
+        return self.query(
+            """SELECT id, ticker, base_asset, quote_asset, settle_asset, 
+            margin_mode, kind
+            FROM instruments 
+            WHERE exchange = %s AND kind = 'perp' AND is_active = TRUE
+            ORDER BY ticker""",
+            (exchange,)
+        )
+    
+    def get_perpetuals_dict(self, exchange: str) -> Dict[str, int]:
+        """
+        Get all active perpetual futures as a dictionary.
+        
+        Args:
+            exchange: Exchange name (e.g., 'hyperliquid', 'kraken')
+        
+        Returns:
+            Dict mapping ticker to instrument_id
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """SELECT ticker, id 
+                    FROM instruments 
+                    WHERE exchange = %s AND kind = 'perp' AND is_active = TRUE""",
+                    (exchange,)
+                )
+                results = cur.fetchall()
+                return {ticker: inst_id for ticker, inst_id in results}
+        except Exception as e:
+            logger.error(f"Failed to fetch perpetuals for {exchange}: {e}")
             return {}
     
     def get_market_data(
@@ -149,6 +279,25 @@ class DBClient:
         query += " ORDER BY timestamp ASC"
         
         return pd.read_sql(query, self.conn, params=params)
+    
+    def get_funding_timestamp_range(self, instrument_id):
+        """
+        Get min and max timestamp for existing funding data.
+        
+        Args:
+            instrument_id: Instrument ID to check
+            
+        Returns:
+            tuple: (min_timestamp, max_timestamp) or (None, None) if no data exists
+        """
+        query = """
+            SELECT MIN(timestamp), MAX(timestamp)
+            FROM funding_history
+            WHERE instrument_id = %s
+        """
+        self.cursor.execute(query, (instrument_id,))
+        result = self.cursor.fetchone()
+        return result if result[0] is not None else (None, None)
 
     def query(self, sql: str, params: tuple = None) -> pd.DataFrame:
         """Execute custom SQL query and return DataFrame."""
