@@ -16,7 +16,7 @@ class HyperliquidClient:
         self,
         base_url: str = "https://api.hyperliquid.xyz/info",
         request_delay: float = 0.2,  # 5 req/s conservative
-        max_retries: int = 3,
+        max_retries: int = 5,
         retry_delay: float = 1.0
     ):
         self.base_url = base_url
@@ -81,42 +81,51 @@ class HyperliquidClient:
                 "endTime": end_ms
             }
         }
-        
-        try:
-            data = self._make_request(payload)
-            
-            if not data or not isinstance(data, list):
-                print(f"✗ No candle data returned for {symbol}")
-                return None
-            
-            if len(data) == 0:
-                print(f"✗ Empty candle data for {symbol}")
-                return None
-            
-            # Parse candles into DataFrame
-            df = pd.DataFrame(data)
-            
-            # Rename columns: t=time, o=open, h=high, l=low, c=close, v=volume
-            df = df.rename(columns={
-                't': 'timestamp',
-                'o': 'open',
-                'h': 'high',
-                'l': 'low',
-                'c': 'close',
-                'v': 'volume'
-            })
-            
-            # Convert timestamp from milliseconds to UTC datetime
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-            
-            # Select only needed columns
-            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-            
-            return df
-            
-        except Exception as e:
-            print(f"✗ Error fetching candles for {symbol}: {e}")
-            return None
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                data = self._make_request(payload)
+                
+                if not data or not isinstance(data, list):
+                    print(f"✗ No candle data returned for {symbol}")
+                    return None
+                
+                if len(data) == 0:
+                    print(f"✗ Empty candle data for {symbol}")
+                    return None
+                
+                # Parse candles into DataFrame
+                df = pd.DataFrame(data)
+                
+                # Rename columns: t=time, o=open, h=high, l=low, c=close, v=volume
+                df = df.rename(columns={
+                    't': 'timestamp',
+                    'o': 'open',
+                    'h': 'high',
+                    'l': 'low',
+                    'c': 'close',
+                    'v': 'volume'
+                })
+                
+                # Convert timestamp from milliseconds to UTC datetime
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+
+                # Cast OHLCV columns to float (API returns them as strings)
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    df[col] = df[col].astype(float)
+
+                # Select only needed columns
+                df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+                
+                return df
+                
+            except Exception as e:
+                retries += 1
+                wait_time = self.retry_delay * (2 ** (retries - 1))
+                print(f"Error fetching candles for {symbol} (attempt {retries}/{self.max_retries}): {e}")
+                sleep(wait_time)
+        print(f"✗ Error fetching candles for {symbol}: {e}")
+        return None
     
     def download_ohlc(
         self,
@@ -129,11 +138,11 @@ class HyperliquidClient:
         Download complete OHLC history for a date range.
         
         Hyperliquid returns max ~500-1000 candles per request depending on interval.
-        We'll chunk by 30 days for hourly data.
+        Uses dynamic chunk sizing based on interval and tracks latest timestamp to avoid gaps.
         
         Args:
             symbol: Coin symbol (e.g., 'BTC')
-            interval: Candle interval ('1h', '4h', '1d', etc.)
+            interval: Candle interval ('1m', '5m', '15m', '1h', '4h', '1d', etc.)
             start_date: Start date 'YYYY-MM-DD'
             end_date: End date 'YYYY-MM-DD'
         
@@ -150,29 +159,44 @@ class HyperliquidClient:
         start_ms = int(start_dt.timestamp() * 1000)
         end_ms = int(end_dt.timestamp() * 1000)
         
-        all_data = []
+        # Dynamically set chunk size based on interval
+        # API typically returns 500-1000 candles per request
+        interval_to_chunk_days = {
+            '1m': 1,      # 1 day = 1440 candles
+            '5m': 3,      # 3 days = 864 candles
+            '15m': 10,    # 10 days = 960 candles
+            '1h': 30,     # 30 days = 720 candles
+            '4h': 90,     # 90 days = 540 candles
+            '1d': 365,    # 365 days = 365 candles
+        }
         
-        # Chunk by 30 days for hourly data
-        chunk_size_ms = 30 * 24 * 60 * 60 * 1000
+        chunk_days = interval_to_chunk_days.get(interval, 30)
+        chunk_size_ms = chunk_days * 24 * 60 * 60 * 1000
+        
+        all_data = []
         current_start = start_ms
         
         while current_start < end_ms:
             chunk_end = min(current_start + chunk_size_ms, end_ms)
             
-            chunk_start_dt = datetime.fromtimestamp(current_start / 1000, tz=timezone.utc)
-            chunk_end_dt = datetime.fromtimestamp(chunk_end / 1000, tz=timezone.utc)
-            
-            print(f"Fetching {chunk_start_dt.date()} to {chunk_end_dt.date()}...")
-            
             df_chunk = self.fetch_candles(symbol, interval, current_start, chunk_end)
             
             if df_chunk is not None and not df_chunk.empty:
                 all_data.append(df_chunk)
-                print(f"Got {len(df_chunk)} candles")
+                # Track the latest timestamp and use it for next iteration
+                latest_timestamp = df_chunk['timestamp'].max()
+                latest_timestamp_ms = int(latest_timestamp.timestamp() * 1000)
+                new_start = latest_timestamp_ms + 1
+                if new_start <= current_start:
+                    # No progress made – API returned data at or before current position.
+                    # Skip to end of chunk to avoid an infinite loop.
+                    current_start = chunk_end + 1
+                else:
+                    current_start = new_start
+                print(f"  Max timestamp so far: {latest_timestamp}")
             else:
-                print(f"No data for this chunk")
-            
-            current_start = chunk_end + 1
+                # If no data, move to next chunk period
+                current_start = chunk_end + 1
         
         if not all_data:
             print(f"No data collected for {symbol}")
@@ -184,8 +208,7 @@ class HyperliquidClient:
         # Remove duplicates and sort
         df_combined = df_combined.drop_duplicates(subset=['timestamp']).sort_values('timestamp')
         
-        print(f"Downloaded {len(df_combined)} total candles for {symbol}")
-        print(f"Date range: {df_combined['timestamp'].min()} to {df_combined['timestamp'].max()}")
+        print(f"Downloaded {len(df_combined)} candles: {df_combined['timestamp'].min()} to {df_combined['timestamp'].max()}")
         
         return df_combined
     
@@ -213,38 +236,44 @@ class HyperliquidClient:
             "endTime": end_ms
         }
         
-        try:
-            data = self._make_request(payload)
-            
-            if not data or not isinstance(data, list):
-                print(f"✗ No funding rate data returned for {symbol}")
-                return None
-            
-            if len(data) == 0:
-                print(f"✗ Empty funding rates for {symbol}")
-                return None
-            
-            # Parse into DataFrame
-            df = pd.DataFrame(data)
-            
-            # Hyperliquid returns: coin, fundingRate, premium, time
-            df = df.rename(columns={
-                'time': 'timestamp',
-                'fundingRate': 'funding_rate_relative',
-                'premium': 'premium'
-            })
-            
-            # Convert timestamp from milliseconds to UTC datetime
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-            
-            # Select only needed columns
-            df = df[['timestamp', 'funding_rate_relative', 'premium']]
-            
-            return df
-            
-        except Exception as e:
-            print(f"✗ Error fetching funding rates for {symbol}: {e}")
-            return None
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                data = self._make_request(payload)
+                
+                if not data or not isinstance(data, list):
+                    print(f"✗ No funding rate data returned for {symbol}")
+                    return None
+                
+                if len(data) == 0:
+                    print(f"✗ Empty funding rates for {symbol}")
+                    return None
+                
+                # Parse into DataFrame
+                df = pd.DataFrame(data)
+                
+                # Hyperliquid returns: coin, fundingRate, premium, time
+                df = df.rename(columns={
+                    'time': 'timestamp',
+                    'fundingRate': 'funding_rate_relative',
+                    'premium': 'premium'
+                })
+                
+                # Convert timestamp from milliseconds to UTC datetime
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+                df["symbol"] = symbol
+                
+                # Select only needed columns
+                df = df[['symbol', 'timestamp', 'funding_rate_relative', 'premium']]
+                
+                return df
+                
+            except Exception as e:
+                retries += 1
+                wait_time = self.retry_delay * (2 ** (retries - 1))
+                print(f"Error fetching funding rates for {symbol} (attempt {retries}/{self.max_retries}): {e}")
+                sleep(wait_time)
+        return None
     
     def download_funding_rates(
         self,
@@ -306,7 +335,7 @@ class HyperliquidClient:
         
         if not all_data:
             print(f"No funding rate data collected for {symbol}")
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['symbol', 'timestamp', 'funding_rate_relative', 'premium'])
         
         # Combine all chunks
         df_combined = pd.concat(all_data, ignore_index=True)
