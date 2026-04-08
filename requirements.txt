@@ -19,3 +19,5 @@ numpy
 dotenv
 python-dotenv
 pyarrow
+seaborn
+tabulate
