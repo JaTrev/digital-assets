@@ -37,7 +37,15 @@ class BacktestEngine:
                 still_open_positions.append(pos)
                 continue
             
-            exit_reason, gross_pnl = self._check_exit(pos, hi=float(bar["high"]), lo=float(bar["low"]))
+            minute_duration = (pd.to_datetime(bar.name, utc=True) - pos.entry_time).total_seconds() / 60  # Duration in minutes
+            exit_reason, gross_pnl = self._check_exit(
+                pos, 
+                high=float(bar["high"]), 
+                low=float(bar["low"]), 
+                close=float(bar["close"]),
+                minute_duration=minute_duration,
+            )
+            
             if exit_reason is not None:
                 # Exit fee calculation
                 exit_price = self._get_exit_price(pos, exit_reason)
@@ -73,27 +81,25 @@ class BacktestEngine:
         
         is_long = signal.direction == Direction.LONG
         hit_sl = (is_long and lo <= signal.sl) or (not is_long and hi >= signal.sl)
+        hit_lq = (is_long and lo <= signal.liq_price) or (not is_long and hi >= signal.liq_price)
         hit_tp = (is_long and hi >= signal.tp) or (not is_long and lo <= signal.tp)
+                
+        # assert pd.to_datetime(bar.name, utc=True) != pd.to_datetime(signal.timestamp, utc=True), f"Bar timestamp {bar_ts} matches signal timestamp {signal.timestamp}"        
         
-        #is_in_window = (55 > int(bar_ts.minute) > 30) or ((bar_ts.minute) <= 20)
-        #if not is_in_window:
-        #    return None  # Reject if not in the allowed execution window
-        
-        assert pd.to_datetime(bar.name, utc=True) != pd.to_datetime(signal.timestamp, utc=True), f"Bar timestamp {bar_ts} matches signal timestamp {signal.timestamp}"        
-        if hit_sl:
-            return None  # Reject the signal if SL would have been hit on the entry bar
+        if hit_sl or hit_lq:
+            return None  # Reject the signal if SL or LIQ would have been hit on the entry bar
         
         if not self.allow_same_bar_exit and hit_tp:
             return None  # Reject the signal if TP would have been hit on the entry bar (unless allow_same_bar_exit is True)
         
-            
         if lo <= signal.entry <= hi:
             entry_fee = (signal.entry * signal.qty) * self.taker_fee
             account.balance -= entry_fee
+            
             return Position(
                 symbol=signal.symbol,
                 direction=Direction(signal.direction),
-                entry_time=pd.to_datetime(bar.name, utc=True), # pd.to_datetime(signal.timestamp)# TODO: or?
+                entry_time=pd.to_datetime(bar.name, utc=True),
                 entry=signal.entry,
                 conviction=signal.conviction,
                 sl=signal.sl,
@@ -107,26 +113,52 @@ class BacktestEngine:
                 risk_at_sl=signal.risk_at_sl,
                 rr_at_entry=signal.rr_at_entry,
                 metadata=signal.metadata,
+                max_minute_duration=2*60,  # Placeholder: max duration of 2 hours
             )
         return None
 
-    
-    def _check_exit(self, pos: Position, hi: float, lo: float) -> tuple[ExitReason | None, float]:
+    def _check_exit(self, pos: Position, high: float, low: float, close: float, minute_duration: float) -> tuple[ExitReason | None, float]:
         """ 
-        Core logic for SL/TP/LIQ checks for an open position given a new hi/lo price. 
+        Core logic for SL/TP/LIQ checks for an open position given a new high/low/close price. 
         Returns the exit reason and PnL if exiting, or (None, 0.0) if still open.
         """
         if pos.direction == Direction.SHORT:
-            if hi >= pos.liq_price: return ExitReason.LIQ, -pos.margin_req
-            if hi >= pos.sl: return ExitReason.SL, (pos.entry - pos.sl) * pos.qty
-            if lo <= pos.tp: return ExitReason.TP, (pos.entry - pos.tp) * pos.qty
-            
+            if high >= pos.liq_price: return ExitReason.LIQ, -pos.margin_req
+            elif high >= pos.sl: return ExitReason.SL, (pos.entry - pos.sl) * pos.qty
+            elif close <= pos.tp: return ExitReason.TP, (pos.entry - pos.tp) * pos.qty
+            #elif minute_duration >= pos.max_minute_duration and close <= pos.entry: return ExitReason.DURATION, (pos.entry - close) * pos.qty
         else:
             assert pos.direction == Direction.LONG
-            if lo <= pos.liq_price: return ExitReason.LIQ, -pos.margin_req
-            if lo <= pos.sl: return ExitReason.SL, (pos.sl - pos.entry) * pos.qty
-            if hi >= pos.tp: return ExitReason.TP, (pos.tp - pos.entry) * pos.qty
+            if low <= pos.liq_price: return ExitReason.LIQ, -pos.margin_req
+            elif low <= pos.sl: return ExitReason.SL, (pos.sl - pos.entry) * pos.qty
+            elif close >= pos.tp: return ExitReason.TP, (pos.tp - pos.entry) * pos.qty
+            #elif minute_duration >= pos.max_minute_duration and close >= pos.entry: return ExitReason.DURATION, (close - pos.entry) * pos.qty
         return None, 0.0
+    
+    def apply_funding_rate(self, account: AccountState, funding_rates: dict[str, float], current_prices: dict[str, float]) -> AccountState:
+        """ 
+        Applies funding payments to the account balance based on the open positions and current funding rates. 
+        """
+        for pos in account.open_positions:
+            qty = float(pos.qty)
+            assert qty > 0.0, f"Position quantity should be positive. Got {qty} for position {pos}"
+            
+            close_price = float(current_prices.get(pos.symbol))
+            funding_rate = float(funding_rates.get(pos.symbol))
+                        
+            # Calculate the funding payment
+            print(f"Applying funding for {pos.symbol}: qty={qty}, close_price={close_price}, funding_rate={funding_rate}")
+            payment = qty * close_price * funding_rate
+            if pos.direction == Direction.LONG:
+                payment = -payment  # Longs pay if funding_rate > 0, receive if funding_rate < 0
+            else:
+                payment = payment  # Shorts receive if funding_rate > 0, pay if funding_rate < 0
+            account.balance += payment
+            
+            # Record the funding payment in the position metadata for tracking
+            pos.metadata["cumulative_funding_payment"] = pos.metadata.get("cumulative_funding_payment", 0.0) + payment
+            
+        return account
     
     def _get_exit_price(self, pos: Position, reason: ExitReason) -> float:
         """ 

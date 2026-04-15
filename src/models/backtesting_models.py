@@ -16,7 +16,7 @@ class ExitReason(str, Enum):
     TP = "TP"
     SL = "SL"
     LIQ = "LIQ"
-
+    DURATION = "DURATION"
 
 @dataclass(slots=True)
 class TradeSignal:
@@ -45,6 +45,7 @@ class Position:
     risk_budget: float
     risk_at_sl: float
     rr_at_entry: float
+    max_minute_duration: int # in minutes
     metadata: dict[str, Any] = field(default_factory=dict)
     
 @dataclass
@@ -91,6 +92,7 @@ class Trade:
     pnl_gross: float
     pnl_net: float
     balance: float
+    max_minute_duration: int # in minutes
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
