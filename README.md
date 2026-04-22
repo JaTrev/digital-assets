@@ -1,6 +1,6 @@
 # Digital Assets
 
-A data pipeline application for collecting and analyzing digital asset data.
+A data pipeline repository for collecting and analyzing digital asset data.
 
 ## Project Structure
 
@@ -36,11 +36,9 @@ digital-assets/
 - **Never committed to git** (configured in `.gitignore`)
 - Data flows in from processes and is consumed by research
 
-### `process/`
-- Automated tasks triggered daily by GitHub Actions (see `.github/workflows/deploy.yml`)
+### `scripts/`
 - Includes data importing and data processing tasks
-- Examples: `dummy.py`, `email_dummy.py`
-- Can be run manually with `python -m process.dummy`
+- Can be run manually with `python -m scripts.file_name`
 
 ### `src/`
 - Core Python modules shared across processes and research
@@ -55,18 +53,6 @@ digital-assets/
 
 ## Running
 
-### Daily Automation
-Processes run automatically via GitHub Actions at 7:30 AM UTC (configurable in `.github/workflows/deploy.yml`)
-
-### Manual Execution
-```bash
-# Run a specific process
-python -m process.dummy
-python -m process.email_dummy
-
-# Or directly
-python jobs/dummy.py
-```
 
 ### Development
 ```bash
