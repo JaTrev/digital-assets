@@ -18,6 +18,10 @@ data/
 *.parquet
 *.log
 .ipynb_checkpoints/
+research/_archive/
+research/_hidden/
+strats/
+scripts/
 
 # --- Mac / System ---
 .DS_Store

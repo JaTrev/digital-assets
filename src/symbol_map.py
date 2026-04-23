@@ -26,6 +26,8 @@ SYMBOL_MAP = {
     "UNI":      "UNI",       #
     "JUP":      "JUP",       #
     "XPL":      "XPL",       #
+    "ADA":      "ADA",       #
+    "PAXG":     "PAXG",      #
     
     # Commodity & Index Marktets
     "SP500":    "xyz:SP500",
